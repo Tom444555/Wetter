@@ -10,6 +10,8 @@
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <meta name="apple-mobile-web-app-title" content="Wetter">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <style>
 :root{--glass:rgba(255,255,255,.12);--line:rgba(255,255,255,.18);--dim:rgba(255,255,255,.62);--txt:#fff;--r:22px}
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -84,12 +86,29 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI",Ro
 .place b{font-size:20px}.place small{display:block;color:var(--dim);font-size:13px;margin-top:2px}.place .pt{font-size:40px;font-weight:300}
 .res{padding:12px 4px;border-bottom:.5px solid var(--line);cursor:pointer}.res small{color:var(--dim)}
 .badge{position:fixed;top:calc(env(safe-area-inset-top) + 8px);left:50%;transform:translateX(-50%);font-size:11px;background:rgba(0,0,0,.35);padding:4px 10px;border-radius:20px;color:var(--dim);z-index:4;white-space:nowrap}
+/* Regenradar */
+.radar #rmap{height:260px;border-radius:14px;overflow:hidden;background:#0d1830}
+.radar .cap button{margin-left:auto;background:rgba(255,255,255,.18);border:0;color:#fff;border-radius:8px;padding:3px 9px;font:600 12px inherit;font-family:inherit;cursor:pointer}
+.rctl{display:flex;align-items:center;gap:10px;margin-top:10px}
+.rctl button{width:34px;height:34px;border-radius:50%;border:0;background:rgba(255,255,255,.22);color:#fff;font-size:14px;cursor:pointer;flex:none}
+.rctl input{flex:1;accent-color:#7fd0ff}
+.rctl span{font-size:13px;font-weight:600;min-width:108px;text-align:right;font-variant-numeric:tabular-nums}
+.rleg{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--dim);margin-top:8px}
+.rleg i{flex:1;height:6px;border-radius:3px;background:linear-gradient(90deg,#3fd9d9,#1a9e3a,#c8c81e,#f7923a,#e5484d,#c03bd6)}
+.rleg label{display:flex;align-items:center;gap:5px;margin-left:8px;color:var(--txt);white-space:nowrap}
+.radar.full{position:fixed;inset:0;z-index:20;margin:0;border-radius:0;display:flex;flex-direction:column;padding:calc(env(safe-area-inset-top) + 12px) 16px calc(env(safe-area-inset-bottom) + 14px);background:#0d1830}
+.radar.full #rmap{flex:1;height:auto}
+.leaflet-container{font-family:inherit}.leaflet-control-attribution{font-size:9px!important;background:rgba(0,0,0,.4)!important;color:#ccc!important}.leaflet-control-attribution a{color:#ddd!important}
 .fade{animation:up .6s both}@keyframes up{from{opacity:0;transform:translateY(10px)}}
 </style>
 </head>
 <body>
 <div id="bg"></div><canvas id="fx"></canvas>
 <div class="badge" id="badge">lädt…</div>
+<div id="hold" hidden><div class="card radar" id="radarWrap"><div class="cap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><path d="M12 12l6-6"/></svg>Regenradar · DWD<button id="rFull">Vollbild</button></div>
+<div id="rmap"></div>
+<div class="rctl"><button id="rPlay" aria-label="Abspielen">▶</button><input type="range" id="rSl" min="0" max="0" value="0"><span id="rTime">–</span></div>
+<div class="rleg">leicht<i></i>stark<label><input type="checkbox" id="rWarn">Warnungen</label></div></div></div>
 <main class="app" id="app"></main>
 <nav class="tab">
   <button id="btnLoc" aria-label="Standort"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8"><path d="M3 11l18-8-8 18-2-8z"/></svg></button>
@@ -255,6 +274,7 @@ function render(){
     <div class="hl">H: ${r0(D.temperature_2m_max[ti])}°  T: ${r0(D.temperature_2m_min[ti])}°</div></section>
   ${rainHtml}
   <div class="card fade"><div class="note">${summary}</div><div class="hours">${hrs.join('')}</div></div>
+  <div id="radarSlot"></div>
   <div class="card fade" id="tk"></div>
   <div class="card fade"><div class="cap">${svgI('cal')}Vorhersage · ${nd} Tage</div>${dayRows}<button class="more" id="more">${S.showAll?'Weniger anzeigen':'Alle 16 Tage anzeigen'}</button></div>
   <div class="grid fade">
@@ -271,6 +291,7 @@ function render(){
   </div>`;
   $('#more').onclick=()=>{S.showAll=!S.showAll;render()};
   ticker();
+  $('#radarSlot').appendChild(RW);radar(p.lat,p.lon);
 }
 
 /* --- Temperatur im Börsenkurs-Stil --- */
@@ -314,6 +335,56 @@ function compass(deg,spd){
 }
 function svgI(n){const P={drop:'M12 3s6 7 6 11a6 6 0 0 1-12 0c0-4 6-11 6-11z',cal:'M4 6h16v14H4zM4 10h16M8 3v4M16 3v4',therm:'M10 14V5a2 2 0 0 1 4 0v9a4 4 0 1 1-4 0z',wind:'M3 9h12a3 3 0 1 0-3-3M3 15h16a3 3 0 1 1-3 3',sun:'M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10zM12 1v3M12 20v3M1 12h3M20 12h3',sunset:'M3 18h18M6 14a6 6 0 0 1 12 0M12 3v5M9 6l3 3 3-3',gauge:'M12 21a9 9 0 1 1 0-18 9 9 0 0 1 0 18zM12 12l4-4',leaf:'M5 19C5 9 12 4 20 4c0 8-5 15-15 15zM5 19l7-7',flower:'M12 8a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM12 2v4M12 16v6M4 11h4M16 11h4',chart:'M3 17l5-5 4 3 8-8M15 7h5v5'};return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="${P[n]}"/></svg>`}
 
+
+/* --- Regenradar (DWD Niederschlagsradar, 5-Min-Raster, inkl. 2 Std. Vorhersage) --- */
+const RW=document.getElementById('radarWrap');
+const R={map:null,layers:[],frames:[],i:0,timer:null,warn:null,mk:null,built:0,obs:0};
+function radar(lat,lon){
+  if(typeof L==='undefined'){$('#rmap').innerHTML='<div style="padding:40px 10px;text-align:center;color:var(--dim)">Karte braucht Internet</div>';return}
+  if(!R.map){
+    R.map=L.map('rmap',{zoomControl:false,dragging:false,touchZoom:false,scrollWheelZoom:false,doubleClickZoom:false,boxZoom:false,keyboard:false}).setView([lat,lon],8);
+    const esri='https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/';
+    L.tileLayer(esri+'World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',{maxZoom:12,minZoom:5,attribution:'Karte © Esri · Radar © DWD'}).addTo(R.map);
+    L.tileLayer(esri+'World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}',{maxZoom:12,minZoom:5,zIndex:650,pane:'overlayPane'}).addTo(R.map);
+    R.map.on('click',()=>{if(!RW.classList.contains('full'))full()});
+    $('#rFull').onclick=e=>{e.stopPropagation();full()};
+    $('#rPlay').onclick=()=>R.timer?stop():play();
+    $('#rSl').oninput=e=>{stop();show(+e.target.value)};
+    $('#rWarn').onchange=e=>{if(e.target.checked){R.warn=L.tileLayer.wms('https://maps.dwd.de/geoserver/dwd/wms',{layers:'dwd:Warnungen_Landkreise',format:'image/png',transparent:true,opacity:.55}).addTo(R.map)}else if(R.warn){R.map.removeLayer(R.warn);R.warn=null}};
+  }
+  const ll=[lat,lon];
+  if(R.mk)R.mk.setLatLng(ll);else R.mk=L.circleMarker(ll,{radius:6,color:'#fff',weight:2,fillColor:'#3d8bff',fillOpacity:1}).addTo(R.map);
+  R.map.setView(ll,R.map.getZoom());
+  if(Date.now()-R.built>5*60e3)frames();
+  setTimeout(()=>R.map.invalidateSize(),50);
+}
+function frames(){
+  stop();R.layers.forEach(l=>R.map.removeLayer(l));R.layers=[];R.frames=[];
+  const m5=5*60e3,m15=15*60e3;R.obs=Math.floor((Date.now()-10*60e3)/m5)*m5;
+  for(let t=R.obs-60*60e3;t<=R.obs+105*60e3;t+=m15)R.frames.push(t);
+  /* ein Bild pro Zeitpunkt für ganz Deutschland (schneller als viele Kacheln) */
+  const BB=[278298,5860840,1836772,7459517],un=(x,y)=>L.CRS.EPSG3857.unproject(L.point(x,y)),bounds=L.latLngBounds(un(BB[0],BB[1]),un(BB[2],BB[3]));
+  R.layers=R.frames.map(t=>L.imageOverlay('https://maps.dwd.de/geoserver/dwd/wms?service=WMS&version=1.3.0&request=GetMap&layers=dwd:Niederschlagsradar&styles=&format=image/png&transparent=true&crs=EPSG:3857&width=1200&height=1230&bbox='+BB.join(',')+'&time='+new Date(t).toISOString().replace('.000Z','Z'),bounds,{opacity:0,className:'rimg'}));
+  $('#rSl').max=R.frames.length-1;R.built=Date.now();const c=R.frames.indexOf(R.obs);show(c);
+  /* aktuelles Bild zuerst, danach die übrigen nacheinander vorladen */
+  const order=[...R.frames.keys()].filter(k=>k!==c).sort((a,b)=>Math.abs(a-c)-Math.abs(b-c));
+  const next=()=>{const k=order.shift();if(k==null)return;const l=R.layers[k];if(!R.map.hasLayer(l)){l.once('load',next);l.addTo(R.map)}else next()};
+  R.layers[c].once('load',next);
+}
+function show(i){
+  R.i=i;R.layers.forEach((l,k)=>l.setOpacity(k===i?.8:0));if(!R.map.hasLayer(R.layers[i]))R.layers[i].addTo(R.map);$('#rSl').value=i;
+  const t=R.frames[i],d=Math.round((t-R.obs)/6e4);
+  $('#rTime').textContent=new Date(t).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})+(d===0?' · jetzt':d>0?' · Prognose':' · vor '+(-d)+' Min');
+}
+function play(){$('#rPlay').textContent='❚❚';let n=R.i;R.timer=setInterval(()=>{n=(n+1)%R.frames.length;show(n)},700)}
+function stop(){clearInterval(R.timer);R.timer=null;const b=$('#rPlay');if(b)b.textContent='▶'}
+function full(){
+  const on=RW.classList.toggle('full');$('#rFull').textContent=on?'Schließen':'Vollbild';
+  ['dragging','touchZoom','scrollWheelZoom','doubleClickZoom'].forEach(k=>R.map[k][on?'enable':'disable']());
+  document.body.style.overflow=on?'hidden':'';setTimeout(()=>R.map.invalidateSize(),60);
+  if(!on)R.map.setView(R.mk.getLatLng(),8);
+}
+
 /* --- Orte: Suche, Liste, Standort --- */
 let qt;
 $('#q').oninput=e=>{clearTimeout(qt);const v=e.target.value.trim();if(v.length<2){$('#results').innerHTML='';return}
@@ -327,7 +398,7 @@ function closeSheet(){$('#sheet').classList.remove('open');$('#q').value='';$('#
 $('#btnList').onclick=openSheet;$('#sheet').onclick=e=>{if(e.target.id==='sheet')closeSheet()};
 $('#btnLoc').onclick=()=>{if(!navigator.geolocation)return;navigator.geolocation.getCurrentPosition(async pos=>{const{latitude:la,longitude:lo}=pos.coords;S.places[0]={name:'Standort',admin:'',lat:+la.toFixed(4),lon:+lo.toFixed(4)};S.idx=0;save('wx.places',S.places);save('wx.idx',0);refresh()},()=>{})};
 /* Wischen zwischen Orten */
-let sx=null;document.addEventListener('touchstart',e=>{if(!e.target.closest('.hours,#chart'))sx=e.touches[0].clientX},{passive:true});
+let sx=null;document.addEventListener('touchstart',e=>{if(!e.target.closest('.hours,#chart,.radar'))sx=e.touches[0].clientX},{passive:true});
 document.addEventListener('touchend',e=>{if(sx==null)return;const dx=e.changedTouches[0].clientX-sx;sx=null;if(Math.abs(dx)>70&&S.places.length>1){S.idx=(S.idx+(dx<0?1:-1)+S.places.length)%S.places.length;save('wx.idx',S.idx);refresh()}});
 setInterval(refresh,15*60*1000);
 refresh();
