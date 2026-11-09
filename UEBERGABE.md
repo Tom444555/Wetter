@@ -1,7 +1,7 @@
 # Wetter – Übergabe
 
 **Stand:** v1 (09.11.2026)
-**Live:** https://tom444555.github.io/wetter/ (GitHub Pages, Branch `main`, Ordner `/`)
+**Live:** https://tom444555.github.io/Wetter/ (GitHub Pages, Branch `main`, Ordner `/`)
 **Vorschau-Artifact:** https://claude.ai/artifact/2STVJCi3b5W7WCpCFsB87a (nur Beispieldaten – Artifacts dürfen nichts abrufen)
 
 ## Aufbau
